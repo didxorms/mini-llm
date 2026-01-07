@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# env
+.venv/
+venv/
+
+# logs / checkpoints
+runs/
+*.pt
+*.pth
+
+# editors
+.vscode/
+.idea/
+
+# data (원하면 input.txt는 추적해도 됨)
+# data/

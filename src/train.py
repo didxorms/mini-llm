@@ -48,7 +48,7 @@ def main():
 
     optim = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
 
-    max_stemps = 500
+    max_stemps = 5000
     log_every = 50
     eval_every = 200
     t0 = time.time()

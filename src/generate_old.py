@@ -1,43 +1,19 @@
 from __future__ import annotations
 import argparse
-import random
 import torch
 import torch.nn.functional as F
 
 from src.data import build_dataset
 from src.model import TinyLM
 
-def set_seed(seed: int):
-    random.seed(seed)
-    torch.manual_seed(seed)
-
 @torch.no_grad()
-def generate(
-    model: TinyLM,
-    idx: torch.Tensor,
-    max_new_tokens: int,
-    temperature: float,
-    mode: str,
-    top_k: int,
-):
+def generate(model, idx, max_new_tokens=200, temperature=1.0):
     model.eval()
-    
     for _ in range(max_new_tokens):
         logits = model(idx)
         logits = logits[:, -1, :] / max(temperature, 1e-6)
         probs = F.softmax(logits, dim=-1)
-
-        if mode == "greedy":
-            next_id = torch.argmax(probs, dim=-1, keepdim=True)
-        else:
-            if top_k > 0:
-                topk_probs, topk_idx = torch.topk(probs, k=top_k, dim=-1)
-                topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True)
-                next_local = torch.multinomial(topk_probs, num_samples=1)
-                next_id = torch.gather(topk_idx, dim=-1, index=next_local)
-            else:
-                next_id = torch.multinomial(probs, num_samples=1)
-
+        next_id = torch.multinomial(probs, num_samples=1)
         idx = torch.cat([idx, next_id], dim=1)
 
         if idx.size(1) > model.max_len:
@@ -48,12 +24,9 @@ def generate(
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", default="runs/tinylm_day2.pt")
-    p.add_argument("--prompt", default="After people saw ")
+    p.add_argument("--prompt", default="The ")
     p.add_argument("--tokens", type=int, default=300)
-    p.add_argument("--temp", type=float, default=0.8)
-    p.add_argument("--mode", choices=["sample", "greedy"], default="sample")
-    p.add_argument("--top_k", type=int, default=50)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--temp", type=float, default=1.0)
     args = p.parse_args()
 
     ds = build_dataset("data/input.txt")
@@ -79,14 +52,7 @@ def main():
     )
     model.load_state_dict(ckpt["model"])
 
-    out = generate(
-        model=model,
-        idx=idx,
-        max_new_tokens=args.tokens,
-        temperature=args.temp,
-        mode=args.mode,
-        top_k=args.top_k,
-    )
+    out = generate(model, idx, max_new_tokens=args.tokens, temperature=args.temp)
     text = "".join(vocab[i] for i in out[0].tolist())
     print(text)
 

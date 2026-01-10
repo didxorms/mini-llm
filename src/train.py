@@ -51,7 +51,19 @@ def main():
     p.add_argument("--resume", default="", help="checkpoint 경로 (없으면 새로 학습)")
     p.add_argument("--out_dir", default="runs")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--log_file", default="", help="예: runs/train_log.txt (비우면 파일 저장 안 함)")
     args = p.parse_args()
+
+    log_f = None
+    if args.log_file:
+        Path(args.log_file).parent.mkdir(exist_ok=True, parents=True)
+        log_f = open(args.log_file, "a", encoding="utf-8")
+
+    def log(msg: str):
+        print(msg)
+        if log_f:
+            log_f.write(msg + "\n")
+            log_f.flush()
 
     torch.manual_seed(args.seed)
 
@@ -86,9 +98,9 @@ def main():
         model.load_state_dict(ckpt["model"])
         optim.load_state_dict(ckpt["optim"])
         start_step = int(ckpt.get("step", 0))
-        print(f"[resume] loaded {args.resume} (start_step={start_step})")
+        log(f"[resume] loaded {args.resume} (start_step={start_step})")
 
-    print(f"device: {device} | vocab: {ds.vocab_size} | seq_len: {args.seq_len} | batch: {batch_size}")
+    log(f"device: {device} | vocab: {ds.vocab_size} | seq_len: {args.seq_len} | batch: {batch_size}")
     print(f"max_steps: {args.max_steps} | eval_every: {args.eval_every} | save_every: {args.save_every}")
 
     t0 = time.time()
@@ -106,7 +118,7 @@ def main():
 
         if step % 50 == 0:
             dt = time.time() - t0
-            print(f"step {step:6d} | loss {loss.item():.4f} | ppl {math.exp(loss.item()):.2f} | {dt:.1f}s")
+            log(f"step {step:6d} | loss {loss.item():.4f} | ppl {math.exp(loss.item()):.2f} | {dt:.1f}s")
 
         if step % args.eval_every == 0:
             est = estimate_loss(model, train_ids, val_ids, device, batch_size, args.seq_len, iters=30)
@@ -133,7 +145,7 @@ def main():
                 max_len=args.seq_len,
                 args = vars(args),
             )
-            print(f"[save] {ckpt_path}")
+            log(f"[save] {ckpt_path}")
 
     final_path = out_dir / "final.pt"
     save_ckpt(
@@ -144,6 +156,9 @@ def main():
         args = vars(args),
     )
     print(f"[save] final -> {final_path}")
+
+    if log_f:
+        log_f.close()
 
 
 if __name__ == "__main__":

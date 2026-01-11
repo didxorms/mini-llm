@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class CasualSelfAttention(nn.Module):
+class CausalSelfAttention(nn.Module):
     def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1):
         super().__init__()
         assert d_model % n_heads == 0
@@ -13,8 +13,6 @@ class CasualSelfAttention(nn.Module):
         self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
         self.proj = nn.Linear(d_model, d_model, bias=False)
         self.drop = nn.Dropout(dropout)
-
-        self.register_buffer("mask", torch.tril(torch.ones(1, 1, 1024, 1024)), persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
@@ -27,7 +25,8 @@ class CasualSelfAttention(nn.Module):
 
         att = (q @ k.transpose(-2, -1)) / (self.d_head ** 0.5)
 
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
+        mask = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
+        att = att.masked_fill(mask == 0, float("-inf"))
 
         w = F.softmax(att, dim=-1)
         w = self.drop(w)
@@ -41,7 +40,7 @@ class Block(nn.Module):
     def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
         self.ln1= nn.LayerNorm(d_model)
-        self.attn = CasualSelfAttention(d_model, n_heads, dropout)
+        self.attn = CausalSelfAttention(d_model, n_heads, dropout)
         self.ln2 = nn.LayerNorm(d_model)
         self.mlp = nn.Sequential(
             nn.Linear(d_model, d_ff),

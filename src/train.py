@@ -10,12 +10,13 @@ import torch.nn.functional as F
 from src.data import build_dataset, split_train_val, get_batch
 from src.model import TinyLM
 
-def save_ckpt(path: str, model: TinyLM, optim: torch.optim.Optimizer, step:int, vocab, max_len: int, args: dict):
+def save_ckpt(path: str, model: TinyLM, optim: torch.optim.Optimizer, step:int, max_len: int, args: dict):
     ckpt = {
         "step": step,
         "model": model.state_dict(),
         "optim": optim.state_dict(),
-        "vocab": vocab,
+        "tokenizer": "byte",
+        "vocab_size": 256,
         "max_len": max_len,
         "args": args,
     }
@@ -130,7 +131,6 @@ def main():
                 save_ckpt(
                     str(best_path),
                     model, optim, step,
-                    vocab=ds.itos,
                     max_len=args.seq_len,
                     args = vars(args),
                 )
@@ -141,7 +141,6 @@ def main():
             save_ckpt(
                 str(ckpt_path),
                 model, optim, step,
-                vocab=ds.itos,
                 max_len=args.seq_len,
                 args = vars(args),
             )
@@ -151,7 +150,6 @@ def main():
     save_ckpt(
         str(final_path),
         model, optim, step,
-        vocab=ds.itos,
         max_len=args.seq_len,
         args = vars(args),
     )

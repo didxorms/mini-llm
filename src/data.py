@@ -4,51 +4,36 @@ from pathlib import Path
 import torch
 
 @dataclass
-class TextDataset:
-    text: str
-    stoi: dict[str, int]
-    itos: list[str]
+class ByteDataset:
+    raw_bytes: bytes
     data_ids: torch.Tensor
 
     @property
     def vocab_size(self) -> int:
-        return len(self.itos)
+        return 256
     
-    def encode(self, s: str) -> list[int]:
-        return [self.stoi[ch] for ch in s]
+    def decode(self, ids: torch.Tensor | list[int]) -> str:
+        if isinstance(ids, torch.Tensor):
+            ids = ids.tolist()
+        b = bytes([int(x) & 0xFF for x in ids])
+        return b.decode("utf-8", errors="replace")
     
-    def decode(self, ids: list[int]) -> str:
-        return "".join(self.itos[i] for i in ids)
-    
-def build_dataset(txt_path: str | Path) -> TextDataset:
-    path = Path(txt_path)
-    text = path.read_text(encoding='utf-8')
+def build_dataset(txt_path: str | Path) -> ByteDataset:
+    txt_path = Path(txt_path)
+    raw = txt_path.read_bytes()
+    data_ids = torch.tensor(list(raw), dtype=torch.long)
+    return ByteDataset(raw_bytes=raw, data_ids=data_ids)
 
-    chars = sorted(list(set(text)))
-    stoi = {ch: i for i, ch in enumerate(chars)}
-    itos = chars
-    
-    ids = torch.tensor([stoi[ch] for ch in text], dtype=torch.long)
-    return TextDataset(text=text, stoi=stoi, itos=itos, data_ids=ids)
-
-def split_train_val(ids: torch.Tensor, val_ratio: float = 0.1):
-    n = ids.numel()
+def split_train_val(data_ids: torch.Tensor, val_ratio: float = 0.1):
+    n = data_ids.numel()
     n_val = int(n * val_ratio)
-    train_ids = ids[:-n_val] if n_val > 0 else ids
-    val_ids = ids[-n_val:] if n_val > 0 else ids[:0]
+    train_ids = data_ids[:-n_val]
+    val_ids = data_ids[-n_val:]
     return train_ids, val_ids
 
-def get_batch(
-        ids: torch.Tensor,
-        batch_size: int,
-        seq_len: int,
-        device: str = "cpu",
-):
-    if ids.numel() < seq_len + 1:
-        raise ValueError(f"Data too small: need >= {seq_len+1} tokens, got {ids.numel()}")
-    
-    max_start = ids.numel() - (seq_len + 1)
-    starts = torch.randint(0, max_start + 1, (batch_size,))
-    x = torch.stack([ids[s : s + seq_len] for s in starts], dim=0)
-    y = torch.stack([ids[s + 1 : s + 1 + seq_len] for s in starts], dim=0)
+def get_batch(data_ids: torch.Tensor, batch_size: int, seq_len: int, device: str):
+    N = data_ids.numel()
+    ix = torch.randint(0, N - seq_len -1, (batch_size,))
+    x = torch.stack([data_ids[i : i + seq_len] for i in ix])
+    y = torch.stack([data_ids[i + 1 : i + 1 + seq_len] for i in ix])
     return x.to(device), y.to(device)

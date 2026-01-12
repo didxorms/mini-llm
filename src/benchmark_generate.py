@@ -8,7 +8,7 @@ from src.model import TinyLM
 
 
 @torch.no_grad()
-def bench(model: TinyLM, start_ids: torch.Tensor, gen_tokens: int, mode: str = "greedy"):
+def bench(model: TinyLM, start_ids: torch.Tensor, gen_tokens: int, mode: str = "greedy", use_cache: bool = False):
     model.eval()
     idx = start_ids.clone()
 
@@ -19,8 +19,16 @@ def bench(model: TinyLM, start_ids: torch.Tensor, gen_tokens: int, mode: str = "
         torch.cuda.synchronize()
 
     t0 = time.time()
+
+    if use_cache:
+        out = idx
+        prefill_idx = out[:, -model.max_len :] if out.size(1) > model.max_len else out
+        logits, past = model(prefill_idx, use_cache=True)
+
     for _ in range(gen_tokens):
-        logits = model(idx)
+        if not use_cache:
+            logits = model(idx) 
+            
         probs = F.softmax(logits[:, -1, :], dim=-1)
 
         if mode == "greedy":
@@ -31,6 +39,9 @@ def bench(model: TinyLM, start_ids: torch.Tensor, gen_tokens: int, mode: str = "
         idx = torch.cat([idx, next_id], dim=1)
         if idx.size(1) > model.max_len:
             idx = idx[:, -model.max_len :]
+
+        if use_cache:
+            logits, past = model(next_id, past_kvs=past, use_cache=True)
         
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -45,16 +56,17 @@ def main():
     p.add_argument("--context", type=int, default=128)
     p.add_argument("--gen_tokens", type=int, default=512)
     p.add_argument("--mode", choices=["sample", "greedy"], default="greedy")
+    p.add_argument("--cache", action="store_true")
     args = p.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ckpt = torch.load(args.ckpt, map_location=device)
 
-    vocab = ckpt["vocab"]
-    max_len = ckpt["max_len"]
+    vocab_size = int(ckpt.get("vocab_size", 256))
+    max_len = int(ckpt["max_len"])
 
     model = TinyLM(
-        vocab_size=len(vocab),
+        vocab_size=vocab_size,
         max_len=max_len,
         d_model=256,
         n_heads=8,
@@ -65,9 +77,9 @@ def main():
     model.load_state_dict(ckpt["model"])
 
     ctx = min(args.context, max_len)
-    start = torch.randint(0, len(vocab), (1, ctx), device=device)
+    start = torch.randint(0, vocab_size, (1, ctx), device=device)
 
-    dt, tps = bench(model, start, args.gen_tokens, mode=args.mode)
+    dt, tps = bench(model, start, args.gen_tokens, mode=args.mode, use_cache=args.cache)
     print(f"device={device} | context={ctx} | gen={args.gen_tokens} | {tps:.2f} tokens/s | {dt:.2f}s")
 
 

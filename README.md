@@ -123,3 +123,22 @@ prefill 단계에서 과거 토큰들의 K,V를 한 번 계산해 저장해두�
 → “전체 재계산”이 “새 토큰만 계산”으로 바뀌어 크게 빨라진다.
 
 (실제로 벤치마크에서 cache ON이 cache OFF보다 큰 폭으로 tokens/s가 증가함)
+
+
+## KV-cache speedup (CPU)
+
+- cache OFF: 40.14 tokens/s (12.76s) @ context=128, gen=512
+- cache ON : 168.98 tokens/s (3.03s)  @ context=128, gen=512
+- speedup  : ~4.21x
+
+## Training (byte-level)
+
+- step 10000: loss 1.2720, ppl 3.57
+
+## Sample generation
+
+Prompt: `After people saw `
+
+```After people saw in faces it get a number of over in my doing in. The Electoral College, as parks and countries, and improved our life.",0
+"Overal 83 percent, the people's 257 many persons that was the city of Venus as voters and is landform.
+

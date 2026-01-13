@@ -11,6 +11,66 @@ def set_seed(seed: int):
     random.seed(seed)
     torch.manual_seed(seed)
 
+def sample_next_id(
+    logits: torch.Tensor,
+    mode: str,
+    top_k: int = 0,
+    top_p: float = 0.0,
+) -> torch.Tensor:
+    if mode == "greedy":
+        return torch.argmax(logits, dim=-1, keepdim=True)
+
+    probs = F.softmax(logits, dim=-1)
+
+    if top_k and top_k > 0:
+        topk_probs, topk_idx = torch.topk(probs, k=top_k, dim=-1)
+        topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True)
+        next_local = torch.multinomial(topk_probs, num_samples=1)
+        return torch.gather(topk_idx, dim=-1, index=next_local)
+    
+    if top_p and top_p > 0.0 and top_p < 1.0:
+        sorted_probs, sorted_idx = torch.sort(probs, descending=True, dim=-1)
+        cum = torch.cumsum(sorted_probs, dim=-1)
+
+        keep = cum <= top_p
+        keep[..., 0] = True
+
+        filtered = sorted_probs * keep
+        filtered = filtered / filtered.sum(dim=-1, keepdim=True)
+
+        next_local = torch.multinomial(filtered, num_samples=1)
+        return torch.gather(sorted_idx, dim=-1, index=next_local)
+    
+    return torch.multinomial(probs, num_samples=1)
+
+def apply_no_repeat_ngram(
+    logits: torch.Tensor,
+    idx: torch.Tensor,
+    n: int,
+):
+    if n <= 0:
+        return logits
+    B, T = idx.shape
+    if T < n:
+        return logits
+    
+    for b in range(B):
+        seq = idx[b].tolist()
+        prefix = tuple(seq[-(n-1):]) if n > 1 else tuple()
+
+        banned = set()
+        for i in range(T - n + 1):
+            gram = tuple(seq[i:i+n])
+            if n == 1:
+                banned.add(gram[0])
+            else:
+                if gram[:-1] == prefix:
+                    banned.add(gram[-1])
+        
+        if banned:
+            logits[b, list(banned)] = float("-inf")
+    return logits
+
 @torch.no_grad()
 def generate(
     model: TinyLM,
@@ -19,6 +79,8 @@ def generate(
     temperature: float,
     mode: str,
     top_k: int,
+    top_p: float = 0.0,
+    no_repeat_ngram: int = 0,
     use_cache: bool = False,
 ):
     model.eval()
@@ -35,18 +97,8 @@ def generate(
             for tok in set(recent):
                 logits[0, tok] /= rep_penalty
 
-            probs = F.softmax(logits, dim=-1)
-
-            if mode == "greedy":
-                next_id = torch.argmax(probs, dim=-1, keepdim=True)
-            else:
-                if top_k > 0:
-                    topk_probs, topk_idx = torch.topk(probs, k=top_k, dim=-1)
-                    topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True)
-                    next_local = torch.multinomial(topk_probs, num_samples=1)
-                    next_id = torch.gather(topk_idx, dim=-1, index=next_local)
-                else:
-                    next_id = torch.multinomial(probs, num_samples=1)
+            logits = apply_no_repeat_ngram(logits, idx, no_repeat_ngram)
+            next_id = sample_next_id(logits, mode, top_k, top_p)
 
             idx = torch.cat([idx, next_id], dim=1)
 
@@ -67,18 +119,8 @@ def generate(
         for tok in set(recent):
             last[0, tok] /= rep_penalty
 
-        probs = F.softmax(last, dim=-1)
-
-        if mode == "greedy":
-            next_id = torch.argmax(probs, dim=-1, keepdim=True)
-        else:
-            if top_k > 0:
-                topk_probs, topk_idx = torch.topk(probs, k=top_k, dim=-1)
-                topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True)
-                next_local = torch.multinomial(topk_probs, num_samples=1)
-                next_id = torch.gather(topk_idx, dim=-1, index=next_local)
-            else:
-                next_id = torch.multinomial(probs, num_samples=1)
+        last = apply_no_repeat_ngram(last, out, no_repeat_ngram)
+        next_id = sample_next_id(last, mode, top_k, top_p)
 
         out = torch.cat([out, next_id], dim=1)
 
@@ -97,6 +139,8 @@ def main():
     p.add_argument("--top_k", type=int, default=50)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--cache", action="store_true")
+    p.add_argument("--top_p", type=float, default=0.0, help="nucleus sampling (0 disables)")
+    p.add_argument("--no_repeat_ngram", type=int, default=0, help="0 disables; e.g. 3 blocks repeating 3-grams")
     args = p.parse_args()
 
     set_seed(args.seed)
@@ -133,6 +177,8 @@ def main():
         temperature=args.temp,
         mode=args.mode,
         top_k=args.top_k,
+        top_p=args.top_p,
+        no_repeat_ngram=args.no_repeat_ngram,
         use_cache=args.cache,
     )
 

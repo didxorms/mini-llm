@@ -142,3 +142,13 @@ Prompt: `After people saw `
 ```After people saw in faces it get a number of over in my doing in. The Electoral College, as parks and countries, and improved our life.",0
 "Overal 83 percent, the people's 257 many persons that was the city of Venus as voters and is landform.
 
+## Decoding
+
+Recommended:
+- `--mode sample --temp 0.7 --top_p 0.9 --no_repeat_ngram 3 --cache`
+
+Notes:
+- `top_k`: sample from top-k tokens only
+- `top_p`: nucleus sampling (keep smallest set with cumulative prob >= p)
+- `no_repeat_ngram`: blocks repeating n-grams to reduce loops
+- `cache`: KV-cache for faster generation

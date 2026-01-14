@@ -4,7 +4,7 @@ import random
 import torch
 import torch.nn.functional as F
 
-from src.data import build_dataset
+from src.data import build_dataset, build_spm_dataset
 from src.model import TinyLM
 
 def set_seed(seed: int):
@@ -141,6 +141,8 @@ def main():
     p.add_argument("--cache", action="store_true")
     p.add_argument("--top_p", type=float, default=0.0, help="nucleus sampling (0 disables)")
     p.add_argument("--no_repeat_ngram", type=int, default=0, help="0 disables; e.g. 3 blocks repeating 3-grams")
+    p.add_argument("--tokenizer", choices=["byte", "spm"], default=None)
+    p.add_argument("--spm_model", default=None)
     args = p.parse_args()
 
     set_seed(args.seed)
@@ -150,13 +152,21 @@ def main():
     ds = build_dataset("data/input.txt")
     ckpt = torch.load(args.ckpt, map_location="cpu")
 
-    prompt_bytes = args.prompt.encode("utf-8")
-    ids = list(prompt_bytes)
+    tok = args.tokenizer or ckpt.get("tokenizer", "byte")
+    spm_model = args.spm_model or ckpt.get("spm_model", "data/spm_unigram_4k.model")
+
+    if tok == "spm":
+        ds = build_spm_dataset(r"data\train_essays_RDizzl3_seven_v2.csv", spm_model)
+        ids = ds.encode(args.prompt)
+    else:
+        ds = build_dataset(r"data\train_essays_RDizzl3_seven_v2.csv")
+        ids = list(args.prompt.encode("utf-8"))
+
     if len(ids) == 0:
         raise ValueError("Empty prompt.")
     idx = torch.tensor([ids], dtype=torch.long, device=device)
 
-    vocab_size = int(ckpt.get("vocab_size", 256))
+    vocab_size = int(ckpt["vocab_size"])
     max_len = int(ckpt["max_len"])
 
     model = TinyLM(

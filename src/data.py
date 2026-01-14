@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import torch
+import sentencepiece as spm
 
 @dataclass
 class ByteDataset:
@@ -17,12 +18,41 @@ class ByteDataset:
             ids = ids.tolist()
         b = bytes([int(x) & 0xFF for x in ids])
         return b.decode("utf-8", errors="replace")
+
+@dataclass
+class SPMDataset:
+    sp: spm.SentencePieceProcessor
+    data_ids: torch.Tensor
+
+    @property
+    def vocab_size(self) -> int:
+        return int(self.sp.get_piece_size())
     
+    def encode(self, text: str) -> list[int]:
+        return list(self.sp.encode(text, out_type=int))
+    
+    def decode(self, ids: torch.Tensor | list[int]) -> str:
+        if isinstance(ids, torch.Tensor):
+            ids = ids.tolist()
+        return self.sp.decode([int(x) for x in ids])
+
 def build_dataset(txt_path: str | Path) -> ByteDataset:
     txt_path = Path(txt_path)
     raw = txt_path.read_bytes()
     data_ids = torch.tensor(list(raw), dtype=torch.long)
     return ByteDataset(raw_bytes=raw, data_ids=data_ids)
+
+def build_spm_dataset(txt_path: str | Path, spm_model_path: str | Path) -> SPMDataset:
+    txt_path = Path(txt_path)
+    spm_model_path = Path(spm_model_path)
+
+    sp = spm.SentencePieceProcessor()
+    sp.load(str(spm_model_path))
+
+    text = txt_path.read_text(encoding="utf-8", errors="replace")
+    ids = sp.encode(text, out_type=int)
+    data_ids = torch.tensor(ids, dtype=torch.long)
+    return SPMDataset(sp=sp, data_ids=data_ids)
 
 def split_train_val(data_ids: torch.Tensor, val_ratio: float = 0.1):
     n = data_ids.numel()

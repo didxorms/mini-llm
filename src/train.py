@@ -7,18 +7,19 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-from src.data import build_dataset, split_train_val, get_batch
+from src.data import build_dataset, build_spm_dataset, split_train_val, get_batch
 from src.model import TinyLM
 
-def save_ckpt(path: str, model: TinyLM, optim: torch.optim.Optimizer, step:int, max_len: int, args: dict):
+def save_ckpt(path: str, model: TinyLM, optim: torch.optim.Optimizer, vocab_size: int, step:int, max_len: int, args):
     ckpt = {
         "step": step,
         "model": model.state_dict(),
         "optim": optim.state_dict(),
-        "tokenizer": "byte",
-        "vocab_size": 256,
+        "tokenizer": args.tokenizer,
+        "spm_model": args.spm_model if args.tokenizer == "spm" else None,
+        "vocab_size": vocab_size,
         "max_len": max_len,
-        "args": args,
+        "args": vars(args),
     }
     torch.save(ckpt, path)
 
@@ -40,7 +41,9 @@ def estimate_loss(model, train_ids, val_ids, device, batch_size, seq_len, iters=
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data", default="data/train_essays_7_prompts.csv")
+    p.add_argument("--data", default="data/train_essays_RDizzl3_seven_v2.csv")
+    p.add_argument("--tokenizer", choices=["byte", "spm"], default="byte")
+    p.add_argument("--spm_model", default="data/spm_unigram_4k.model")
     p.add_argument("--max_steps", type=int, default=5000)
     p.add_argument("--seq_len", type=int, default=128)
     p.add_argument("--batch_size", type=int, default=0, help="0이면 디바이스에 따라 자동 설정")
@@ -68,7 +71,10 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    ds = build_dataset(args.data)
+    if args.tokenizer == "spm":
+        ds = build_spm_dataset(args.data, args.spm_model)
+    else:
+        ds = build_dataset(args.data)
     train_ids, val_ids = split_train_val(ds.data_ids, val_ratio=0.1)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"    
@@ -127,12 +133,12 @@ def main():
 
             if est["val"] < best_val:
                 best_val = est["val"]
-                best_path = out_dir / "best.pt"
+                best_path = out_dir / f"best_{args.tokenizer}.pt"
                 save_ckpt(
                     str(best_path),
-                    model, optim, step,
+                    model, optim, ds.vocab_size, step,
                     max_len=args.seq_len,
-                    args = vars(args),
+                    args = args,
                 )
                 print(f"[save] best -> {best_path} (val={best_val:.4f})")
         
@@ -140,18 +146,18 @@ def main():
             ckpt_path = out_dir / f"ckpt_step_{step}.pt"
             save_ckpt(
                 str(ckpt_path),
-                model, optim, step,
+                model, optim, ds.vocab_size, step,
                 max_len=args.seq_len,
-                args = vars(args),
+                args = args,
             )
             log(f"[save] {ckpt_path}")
 
-    final_path = out_dir / "final.pt"
+    final_path = out_dir / f"final_{args.tokenizer}.pt"
     save_ckpt(
         str(final_path),
-        model, optim, step,
+        model, optim, ds.vocab_size, step,
         max_len=args.seq_len,
-        args = vars(args),
+        args = args,
     )
     print(f"[save] final -> {final_path}")
 

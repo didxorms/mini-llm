@@ -155,11 +155,12 @@ def main():
     tok = args.tokenizer or ckpt.get("tokenizer", "byte")
     spm_model = args.spm_model or ckpt.get("spm_model", "data/spm_unigram_4k.model")
 
+    data_path = "data/train_essays_RDizzl3_seven_v2.csv"
     if tok == "spm":
-        ds = build_spm_dataset(r"data\train_essays_RDizzl3_seven_v2.csv", spm_model)
+        ds = build_spm_dataset(data_path, spm_model)
         ids = ds.encode(args.prompt)
     else:
-        ds = build_dataset(r"data\train_essays_RDizzl3_seven_v2.csv")
+        ds = build_dataset(data_path)
         ids = list(args.prompt.encode("utf-8"))
 
     if len(ids) == 0:
